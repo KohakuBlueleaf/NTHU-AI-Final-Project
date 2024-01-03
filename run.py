@@ -1,4 +1,4 @@
-from time import time_ns
+from time import time_ns, sleep
 
 import torch
 import torch.nn as nn
@@ -78,8 +78,12 @@ Use student's preference to predict the summary of final choosed course.
     print(f"Total cost time: {(t1-t0)/1e9:.2f}s")
     print(f"Average Speed: {(result_tokens/((t1-t0)/1e9)):.2f} tokens/sec")
     print()
+    torch.cuda.empty_cache()
+    embed_model.cuda()
     result_embed = embed_model.encode([result])
     request_embed = embed_model.encode([translate(request, "eng_Latn")])
+    embed_model.cpu()
+    torch.cuda.empty_cache()
     preference_sim = torch.cosine_similarity(
         pre_calc_pref_embed, torch.tensor(request_embed)
     )
@@ -92,9 +96,9 @@ Use student's preference to predict the summary of final choosed course.
     for idx in sim_topk.indices:
         if len(choosed) >= 10:
             break
-        if f'{course_num[idx]} | {course_name[idx]}' in choosed:
+        if f'{course_num[idx]} | {course_name[idx]} | {course_name_en[idx]}' in choosed:
             continue
-        choosed[f'{course_num[idx]} | {course_name[idx]}'] = (
+        choosed[f'{course_num[idx]} | {course_name[idx]} | {course_name_en[idx]}'] = (
             summary_sim[idx].item() + 0.3 * preference_sim[idx].item()
         )/1.3
         print(
@@ -110,14 +114,11 @@ if __name__ == "__main__":
     model: PhiForCausalLM = PhiForCausalLM.from_pretrained("microsoft/phi-2")
     model = model.half()
     lycoris_sd = torch.load("./models/lycoris-weights/epoch=4.pt", map_location="cpu")
-    model_sd = {}
-    for k in model.state_dict():
-        if k in lycoris_sd:
-            model_sd[k] = lycoris_sd.pop(k)
-    model.load_state_dict(model_sd, strict=False)
     lycoris_net, _ = create_lycoris_from_weights(1.0, "", model, lycoris_sd)
     lycoris_net.half()
     lycoris_net.merge_to(1.0)
+    model.transformer.h.to(torch.float8_e4m3fn)
+    model.lm_head.to(torch.float8_e4m3fn)
     model.cuda()
 
     apply_attn_algo(model, algo="xformers")
@@ -133,7 +134,7 @@ if __name__ == "__main__":
     pre_calc_pref_embed = torch.tensor(torch.load("./models/preference-embeddings.pt"))
     embed_model = AutoModel.from_pretrained(
         "jinaai/jina-embeddings-v2-base-en", trust_remote_code=True
-    ).half().cuda()
+    ).half()
 
     def wrapper(request):
         yield from get_result(

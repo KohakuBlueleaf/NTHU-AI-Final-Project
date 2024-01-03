@@ -9,7 +9,7 @@ from transformers import M2M100ForConditionalGeneration, AutoTokenizer
 model = M2M100ForConditionalGeneration.from_pretrained(
     "facebook/nllb-200-distilled-600M"
 )
-model: M2M100ForConditionalGeneration = model.half().cuda()
+model: M2M100ForConditionalGeneration = model.half()
 tokenizer = AutoTokenizer.from_pretrained("facebook/nllb-200-distilled-600M")
 
 tokenizer.src_lang = "eng_Latn"
@@ -23,11 +23,13 @@ def translate(text, target_lang="zho_Hant"):
     inputs = tokenizer(text, return_tensors="pt")
     inputs["input_ids"] = inputs["input_ids"].cuda()
     inputs["attention_mask"] = inputs["attention_mask"].cuda()
-    outputs = model.generate(
+    outputs = model.cuda().generate(
         **inputs,
         forced_bos_token_id=tokenizer.lang_code_to_id[target_lang],
         max_length=1024,
     )
+    model.cpu()
+    torch.cuda.empty_cache()
     return tokenizer.batch_decode(outputs, skip_special_tokens=True)[0]
 
 
