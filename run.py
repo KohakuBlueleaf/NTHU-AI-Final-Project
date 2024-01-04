@@ -149,7 +149,7 @@ if __name__ == "__main__":
     ).half()
 
     scorer_model = ContrastiveScorer.load_from_checkpoint(
-        r"Contrastive\i69yb90t\checkpoints\epoch=9-step=680.ckpt"
+        r"models\SigLIP\ver1.ckpt"
     ).cpu()
 
     def wrapper(request):
