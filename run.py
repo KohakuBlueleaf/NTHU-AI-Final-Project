@@ -26,6 +26,15 @@ def load_final_dataset(split="train"):
     return dataset
 
 
+def calc_score(summary_sim, contrastive_score, preference_sim):
+    weight = torch.tensor([0.5, 0.8, 0.3])
+    return (
+        weight[0] * summary_sim
+        + weight[1] * contrastive_score
+        + weight[2] * preference_sim
+    )
+
+
 @torch.no_grad()
 @torch.autocast("cuda")
 def get_result(
@@ -60,7 +69,7 @@ Use student's preference to predict the summary of final choosed course.
             top_p=0.8,
             top_k=45,
             repetition_penalty=1.05,
-            max_new_tokens=64,
+            max_new_tokens=128,
             stream_output=True,
         ),
         disable=True,
@@ -87,31 +96,26 @@ Use student's preference to predict the summary of final choosed course.
     request_embed = torch.tensor(embed_model.encode([request_en]))
     embed_model.cpu()
     torch.cuda.empty_cache()
-    preference_sim = torch.cosine_similarity(
-        pre_calc_pref_embed, request_embed
-    )
+    preference_sim = torch.cosine_similarity(pre_calc_pref_embed, request_embed)
     contrastive_score = scorer_model(request_embed, pre_calc_sum_embed)[0]
-    summary_sim = torch.cosine_similarity(
-        pre_calc_sum_embed, result_embed
+    summary_sim = torch.cosine_similarity(pre_calc_sum_embed, result_embed)
+    sim_score = calc_score(
+        preference_sim,
+        contrastive_score,
+        summary_sim,
     )
-    sim_topk = torch.topk(
-        (
-            preference_sim * 0.3
-            + contrastive_score * 0.5
-            + summary_sim * 0.7
-        ),
-        50
-    ) # Take top 50 since we may have 5 repeat result for same course
+    sim_score = sim_score - sim_score.min()
+    sim_score = sim_score / sim_score.max()
+    sim_topk = torch.topk(sim_score, 100)
     print("Top 10 similar courses: ")
     choosed = {}
     for idx in sim_topk.indices:
         if len(choosed) >= 10:
             break
-        if f"{course_num[idx]} | {course_name[idx]} | {course_name_en[idx]}" in choosed:
+        name = f"{course_num[idx]} | {course_name[idx]} | {course_name_en[idx]}"
+        if name in choosed:
             continue
-        choosed[f"{course_num[idx]} | {course_name[idx]} | {course_name_en[idx]}"] = (
-            summary_sim[idx].item() + 0.3 * preference_sim[idx].item()
-        ) / 1.3
+        choosed[name] = float(sim_score[idx])
         print(
             f"Summary Similarity: {summary_sim[idx].item():.3f}, "
             f"Contrastive Score: {contrastive_score[idx].item():.3f}, "
@@ -166,7 +170,7 @@ if __name__ == "__main__":
             pre_calc_sum_embed,
         )
 
-    with gr.Blocks() as demo:
+    with gr.Blocks(theme=gr.themes.Soft) as demo:
         with gr.Row():
             with gr.Column(scale=1):
                 request = gr.TextArea(label="Input your request")
