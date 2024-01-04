@@ -29,7 +29,6 @@ def translate(text, target_lang="zho_Hant"):
         max_length=1024,
     )
     model.cpu()
-    torch.cuda.empty_cache()
     return tokenizer.batch_decode(outputs, skip_special_tokens=True)[0]
 
 

@@ -16,6 +16,7 @@ from hakuphi.attn_patcher import apply_attn_algo
 from hakuphi.inference import generate
 
 from lycoris.wrapper import create_lycoris_from_weights
+from modules.contrastive import ContrastiveScorer
 from dataset import final
 from data.translation import translate
 
@@ -32,6 +33,7 @@ def get_result(
     model,
     tokenizer,
     embed_model,
+    scorer_model,
     course_num,
     course_name,
     course_name_en,
@@ -58,7 +60,7 @@ Use student's preference to predict the summary of final choosed course.
             top_p=0.8,
             top_k=45,
             repetition_penalty=1.05,
-            max_new_tokens=1024,
+            max_new_tokens=64,
             stream_output=True,
         ),
         disable=True,
@@ -78,31 +80,41 @@ Use student's preference to predict the summary of final choosed course.
     print(f"Total cost time: {(t1-t0)/1e9:.2f}s")
     print(f"Average Speed: {(result_tokens/((t1-t0)/1e9)):.2f} tokens/sec")
     print()
+    request_en = translate(request, "eng_Latn")
     torch.cuda.empty_cache()
     embed_model.cuda()
-    result_embed = embed_model.encode([result])
-    request_embed = embed_model.encode([translate(request, "eng_Latn")])
+    result_embed = torch.tensor(embed_model.encode([result]))
+    request_embed = torch.tensor(embed_model.encode([request_en]))
     embed_model.cpu()
     torch.cuda.empty_cache()
     preference_sim = torch.cosine_similarity(
-        pre_calc_pref_embed, torch.tensor(request_embed)
+        pre_calc_pref_embed, request_embed
     )
+    contrastive_score = scorer_model(request_embed, pre_calc_sum_embed)[0]
     summary_sim = torch.cosine_similarity(
-        pre_calc_sum_embed, torch.tensor(result_embed)
+        pre_calc_sum_embed, result_embed
     )
-    sim_topk = torch.topk(preference_sim * 0.3 + summary_sim, 50)
+    sim_topk = torch.topk(
+        (
+            preference_sim * 0.3
+            + contrastive_score * 0.5
+            + summary_sim * 0.7
+        ),
+        50
+    ) # Take top 50 since we may have 5 repeat result for same course
     print("Top 10 similar courses: ")
     choosed = {}
     for idx in sim_topk.indices:
         if len(choosed) >= 10:
             break
-        if f'{course_num[idx]} | {course_name[idx]} | {course_name_en[idx]}' in choosed:
+        if f"{course_num[idx]} | {course_name[idx]} | {course_name_en[idx]}" in choosed:
             continue
-        choosed[f'{course_num[idx]} | {course_name[idx]} | {course_name_en[idx]}'] = (
+        choosed[f"{course_num[idx]} | {course_name[idx]} | {course_name_en[idx]}"] = (
             summary_sim[idx].item() + 0.3 * preference_sim[idx].item()
-        )/1.3
+        ) / 1.3
         print(
             f"Summary Similarity: {summary_sim[idx].item():.3f}, "
+            f"Contrastive Score: {contrastive_score[idx].item():.3f}, "
             f"Preference Similarity: {preference_sim[idx].item():.3f}"
         )
         print(course_num[idx], course_name[idx], course_name_en[idx])
@@ -136,12 +148,17 @@ if __name__ == "__main__":
         "jinaai/jina-embeddings-v2-base-en", trust_remote_code=True
     ).half()
 
+    scorer_model = ContrastiveScorer.load_from_checkpoint(
+        r"Contrastive\i69yb90t\checkpoints\epoch=9-step=680.ckpt"
+    ).cpu()
+
     def wrapper(request):
         yield from get_result(
             request,
             model,
             tokenizer,
             embed_model,
+            scorer_model,
             course_num,
             course_name,
             course_name_en,
@@ -151,10 +168,10 @@ if __name__ == "__main__":
 
     with gr.Blocks() as demo:
         with gr.Row():
-            with gr.Column():
+            with gr.Column(scale=1):
                 request = gr.TextArea(label="Input your request")
                 submit = gr.Button("Submit")
-            with gr.Column():
+            with gr.Column(scale=2):
                 label = gr.Label(label="Possible Courses")
                 result = gr.TextArea(label="Predicted Summary")
         submit.click(
@@ -163,8 +180,4 @@ if __name__ == "__main__":
             outputs=[result, label],
         )
 
-    demo.launch(
-        server_name = "192.168.1.1",
-        server_port = 17415,
-        max_threads = 2
-    )
+    demo.launch(server_name="192.168.1.1", server_port=17415, max_threads=2)

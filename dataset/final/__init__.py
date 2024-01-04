@@ -96,3 +96,12 @@ def processor(tokenizer, cutoff_len=2048, train_on_inputs=False, padding=True):
         return tokenized_full_prompt
 
     return generate_and_tokenize_prompt
+
+
+def contrastive_processor(emb_model):
+    def pre_calc_emb(data_point):
+        data_point["summary"] = emb_model.encode(data_point["summary"])
+        data_point["preference"] = emb_model.encode(data_point["preference"])
+        return data_point
+
+    return pre_calc_emb
