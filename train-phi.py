@@ -77,7 +77,7 @@ def load_guanaco_dataset(tokenizer):
     processor = guanaco.processor(
         tokenizer, cutoff_len=1024, train_on_inputs=False, padding=True
     )
-    dataset = raw_datas.shuffle().map(processor, desc="load data", batch_size=320)
+    dataset = raw_datas.shuffle().map(processor, desc="load data", num_proc=8)
     return dataset
 
 
@@ -86,7 +86,7 @@ def load_final_dataset(tokenizer):
     processor = final.processor(
         tokenizer, cutoff_len=1024, train_on_inputs=False, padding=True
     )
-    dataset = raw_datas.shuffle().map(processor, desc="load data", batch_size=320)
+    dataset = raw_datas.shuffle().map(processor, desc="load data", num_proc=8)
     return dataset
 
 

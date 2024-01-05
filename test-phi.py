@@ -24,41 +24,26 @@ def load_final_dataset(split="train"):
 
 
 if __name__ == "__main__":
-    model: PhiForCausalLM = PhiForCausalLM.from_pretrained("microsoft/phi-2")
-    model = model.half()
     with torch.no_grad(), torch.autocast("cuda", dtype=torch.float16):
+        # Load LLM
+        text_model: PhiForCausalLM = PhiForCausalLM.from_pretrained("microsoft/phi-2")
+        tokenizer = AutoTokenizer.from_pretrained("microsoft/phi-2")
+        tokenizer.pad_token = tokenizer.eos_token
+        # Apply xformers optimization
+        apply_attn_algo(text_model, algo="xformers")
+
+        # Load LyCORIS model for LLM and apply it
         lycoris_sd = torch.load(
             "./models/lycoris-weights/epoch=4.pt", map_location="cpu"
         )
-        model_sd = {}
-        for k in model.state_dict():
-            if k in lycoris_sd:
-                model_sd[k] = lycoris_sd.pop(k)
-        model.load_state_dict(model_sd, strict=False)
-        lycoris_net, _ = create_lycoris_from_weights(1.0, "", model, lycoris_sd)
-        lycoris_net.half()
-        lycoris_net.merge_to(0.9)
-        model.cuda()
-        # model = torch.compile(model, mode='reduce-overhead')
-        # lycoris_net.cuda()
+        lycoris_net, _ = create_lycoris_from_weights(1.0, "", text_model, lycoris_sd)
+        lycoris_net.to(next(text_model.parameters()).dtype)
+        lycoris_net.merge_to(1.0)
 
-        apply_attn_algo(model, algo="xformers")
-        tokenizer = AutoTokenizer.from_pretrained("microsoft/phi-2")
-        tokenizer.pad_token = tokenizer.eos_token
-        generate(model=model, tokenizer=tokenizer, prompt="Hello", max_new_tokens=16)
-
-        dataset = load_final_dataset(split="summary")
-        course_num = [data["course_number"] for data in dataset]
-        course_name = [data["course_title"] for data in dataset]
-        course_name_en = [data["course_title_en"] for data in dataset]
-        pre_calc_sum_embed = torch.tensor(torch.load("./models/summary-embeddings.pt"))
-        pre_calc_pref_embed = torch.tensor(
-            torch.load("./models/preference-embeddings.pt")
-        )
-        embed_model = AutoModel.from_pretrained(
-            "jinaai/jina-embeddings-v2-base-en", trust_remote_code=True
-        )
-        embed_model = embed_model.half().cuda()
+        # Cast LLM to FP8 for efficiency
+        text_model.transformer.h.to(torch.float8_e4m3fn)
+        text_model.lm_head.to(torch.float8_e4m3fn)
+        text_model.cuda()
 
         print()
         while (request := input("Input your request: ")) != "q":
@@ -68,14 +53,11 @@ if __name__ == "__main__":
 Use student's preference to predict the summary of final choosed course.
 
 ### Input:
-{request}
-
-### Response:
-"""
+{request}"""
             t0 = time_ns()
             for i in tqdm(
                 generate(
-                    model=model,
+                    model=text_model,
                     tokenizer=tokenizer,
                     prompt=prompt,
                     temperature=0.9,
@@ -101,26 +83,3 @@ Use student's preference to predict the summary of final choosed course.
             print(f"Total cost time: {(t1-t0)/1e9:.2f}s")
             print(f"Average Speed: {(result_tokens/((t1-t0)/1e9)):.2f} tokens/sec")
             print()
-            result_embed = embed_model.encode([result])
-            request_embed = embed_model.encode([translate(request, "eng_Latn")])
-            preference_sim = torch.cosine_similarity(
-                pre_calc_pref_embed, torch.tensor(request_embed)
-            )
-            summary_sim = torch.cosine_similarity(
-                pre_calc_sum_embed, torch.tensor(result_embed)
-            )
-            sim_topk = torch.topk(preference_sim * 0.3 + summary_sim, 50)
-            print("Top 10 similar courses: ")
-            choosed = {}
-            for idx in sim_topk.indices:
-                if len(choosed) >= 10:
-                    break
-                if course_num[idx] in choosed:
-                    continue
-                choosed[course_num[idx]] = True
-                print(
-                    f"Summary Similarity: {summary_sim[idx].item():.3f}, "
-                    f"Preference Similarity: {preference_sim[idx].item():.3f}"
-                )
-                print(course_num[idx], course_name[idx], course_name_en[idx])
-                print()

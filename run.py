@@ -19,6 +19,7 @@ from lycoris.wrapper import create_lycoris_from_weights
 from modules.contrastive import ContrastiveScorer
 from dataset import final
 from data.translation import translate
+from utils import slicepart
 
 
 def load_final_dataset(split="train"):
@@ -27,7 +28,7 @@ def load_final_dataset(split="train"):
 
 
 def calc_score(summary_sim, contrastive_score, preference_sim):
-    weight = torch.tensor([0.5, 0.8, 0.3])
+    weight = torch.tensor([1.0, 1.0, 0.5])
     return (
         weight[0] * summary_sim
         + weight[1] * contrastive_score
@@ -39,7 +40,7 @@ def calc_score(summary_sim, contrastive_score, preference_sim):
 @torch.autocast("cuda")
 def get_result(
     request,
-    model,
+    text_model,
     tokenizer,
     embed_model,
     scorer_model,
@@ -50,26 +51,26 @@ def get_result(
     pre_calc_sum_embed,
 ):
     print("=" * 50, "\n")
+    # Use LLM to predict possible summary
+    # This prompt allow model itself to make request longer based on what it learned
+    # Which will be better for preference sim and pref-sum contrastive scorer
     prompt = f"""### Instruct:
 Use student's preference to predict the summary of final choosed course.
 
 ### Input:
-{request}
-
-### Response:
-"""
+{request}"""
     prev = prompt
     t0 = time_ns()
     for i in tqdm(
         generate(
-            model=model,
+            model=text_model,
             tokenizer=tokenizer,
             prompt=prompt,
             temperature=0.9,
             top_p=0.8,
             top_k=45,
             repetition_penalty=1.05,
-            max_new_tokens=128,
+            max_new_tokens=144,
             stream_output=True,
         ),
         disable=True,
@@ -78,10 +79,13 @@ Use student's preference to predict the summary of final choosed course.
             new_len = len(i) - len(prev)
             print(i[len(prev) :], end="", flush=True)
             prev = i
-            yield i[len(prompt) :], {}
+            yield i.split("Response:\n", 1)[-1], {}
         pass
     t1 = time_ns()
-    result = i[len(prompt) :]
+    request = (
+        i.split("Input:\n", 1)[-1].rsplit("Response:\n", 1)[0].rsplit("\n\n", 1)[0]
+    )
+    result = i.split("Response:\n", 1)[-1]
     result_tokens = len(tokenizer.tokenize(result))
     print()
     print("=" * 50)
@@ -89,27 +93,32 @@ Use student's preference to predict the summary of final choosed course.
     print(f"Total cost time: {(t1-t0)/1e9:.2f}s")
     print(f"Average Speed: {(result_tokens/((t1-t0)/1e9)):.2f} tokens/sec")
     print()
+
+    # Calc Embedding for preference and generated summary
     request_en = translate(request, "eng_Latn")
-    torch.cuda.empty_cache()
-    embed_model.cuda()
     result_embed = torch.tensor(embed_model.encode([result]))
     request_embed = torch.tensor(embed_model.encode([request_en]))
-    embed_model.cpu()
-    torch.cuda.empty_cache()
     preference_sim = torch.cosine_similarity(pre_calc_pref_embed, request_embed)
-    contrastive_score = scorer_model(request_embed, pre_calc_sum_embed)[0]
     summary_sim = torch.cosine_similarity(pre_calc_sum_embed, result_embed)
+
+    # Calc contrastive score based on preference and pre calc summary embedding
+    contrastive_score = scorer_model(request_embed, pre_calc_sum_embed)[0]
+    torch.cuda.empty_cache()
+
+    # Get final score
     sim_score = calc_score(
         preference_sim,
         contrastive_score,
         summary_sim,
     )
+    # Normalize
     sim_score = sim_score - sim_score.min()
     sim_score = sim_score / sim_score.max()
-    sim_topk = torch.topk(sim_score, 100)
+
+    # Select best fit
     print("Top 10 similar courses: ")
     choosed = {}
-    for idx in sim_topk.indices:
+    for idx in torch.topk(sim_score, 100).indices:
         if len(choosed) >= 10:
             break
         name = f"{course_num[idx]} | {course_name[idx]} | {course_name_en[idx]}"
@@ -127,31 +136,38 @@ Use student's preference to predict the summary of final choosed course.
 
 
 if __name__ == "__main__":
-    model: PhiForCausalLM = PhiForCausalLM.from_pretrained("microsoft/phi-2")
-    model = model.half()
-    lycoris_sd = torch.load("./models/lycoris-weights/epoch=4.pt", map_location="cpu")
-    lycoris_net, _ = create_lycoris_from_weights(1.0, "", model, lycoris_sd)
-    lycoris_net.half()
-    lycoris_net.merge_to(1.0)
-    model.transformer.h.to(torch.float8_e4m3fn)
-    model.lm_head.to(torch.float8_e4m3fn)
-    model.cuda()
-
-    apply_attn_algo(model, algo="xformers")
-    tokenizer = AutoTokenizer.from_pretrained("microsoft/phi-2")
-    tokenizer.pad_token = tokenizer.eos_token
-    generate(model=model, tokenizer=tokenizer, prompt="Hello", max_new_tokens=16)
-
+    # Load metadata information
     dataset = load_final_dataset(split="summary")
     course_num = [data["course_number"] for data in dataset]
     course_name = [data["course_title"] for data in dataset]
     course_name_en = [data["course_title_en"] for data in dataset]
+
+    # Load pre calc embeddings
     pre_calc_sum_embed = torch.tensor(torch.load("./models/summary-embeddings.pt"))
     pre_calc_pref_embed = torch.tensor(torch.load("./models/preference-embeddings.pt"))
+
+    # Load LLM
+    text_model: PhiForCausalLM = PhiForCausalLM.from_pretrained("microsoft/phi-2")
+    tokenizer = AutoTokenizer.from_pretrained("microsoft/phi-2")
+    tokenizer.pad_token = tokenizer.eos_token
+    # Apply xformers optimization
+    apply_attn_algo(text_model, algo="xformers")
+
+    # Load LyCORIS model for LLM and apply it
+    lycoris_sd = torch.load("./models/lycoris-weights/epoch=4.pt", map_location="cpu")
+    lycoris_net, _ = create_lycoris_from_weights(1.0, "", text_model, lycoris_sd)
+    lycoris_net.to(next(text_model.parameters()).dtype)
+    lycoris_net.merge_to(1.0)
+
+    # Cast LLM to FP8 for efficiency
+    text_model.transformer.h.to(torch.float8_e4m3fn)
+    text_model.lm_head.to(torch.float8_e4m3fn)
+    text_model.cuda()
+
+    # Load Jina-Emb model and contrastive scorer model
     embed_model = AutoModel.from_pretrained(
         "jinaai/jina-embeddings-v2-base-en", trust_remote_code=True
-    ).half()
-
+    ).cpu()
     scorer_model = ContrastiveScorer.load_from_checkpoint(
         r"models\SigLIP\ver1.ckpt"
     ).cpu()
@@ -159,7 +175,7 @@ if __name__ == "__main__":
     def wrapper(request):
         yield from get_result(
             request,
-            model,
+            text_model,
             tokenizer,
             embed_model,
             scorer_model,
