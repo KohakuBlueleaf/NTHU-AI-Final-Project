@@ -164,7 +164,7 @@ if __name__ == "__main__":
     lycoris_sd = torch.load("./models/lycoris-weights/epoch=4.pt", map_location="cpu")
     lycoris_net, _ = create_lycoris_from_weights(1.0, "", text_model, lycoris_sd)
     lycoris_net.to(next(text_model.parameters()).dtype)
-    lycoris_net.merge_to(1.0)
+    lycoris_net.merge_to(0.9)
 
     # Cast LLM to FP8 for efficiency
     text_model.transformer.h.to(torch.float8_e4m3fn)
