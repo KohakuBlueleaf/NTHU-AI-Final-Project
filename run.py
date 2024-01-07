@@ -216,7 +216,7 @@ if __name__ == "__main__":
         with gr.Accordion("addtional infos", open=False):
             with gr.Row():
                 with gr.Column():
-                    result = gr.TextArea(label="LLM output")
+                    result = gr.TextArea(label="LLM output", lines=20)
                 with gr.Column():
                     summary_sim = gr.Label(label="Summary Similarity")
             with gr.Row():
