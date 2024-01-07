@@ -1,12 +1,8 @@
 from time import time_ns
 
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
-import torch.optim as optim
 
-import transformers
-from transformers import AutoTokenizer, AutoModel, GenerationConfig
+from transformers import AutoTokenizer
 from tqdm import tqdm
 
 from hakuphi.model import PhiForCausalLM
@@ -15,7 +11,6 @@ from hakuphi.inference import generate
 
 from lycoris.wrapper import create_lycoris_from_weights
 from dataset import final
-from data.translation import translate
 
 
 def load_final_dataset(split="train"):

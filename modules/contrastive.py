@@ -1,11 +1,5 @@
-from typing import Any
-from pytorch_lightning.utilities.types import STEP_OUTPUT
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-import torch.optim as optim
-
-import pytorch_lightning as pl
 
 from hakuphi.trainer import BaseTrainer
 

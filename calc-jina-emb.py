@@ -6,8 +6,6 @@ os.environ["TOKENIZERS_PARALLELISM"] = "true"
 import torch
 
 torch.set_float32_matmul_precision("medium")
-import torch.nn as nn
-import torch.nn.functional as F
 from transformers import AutoModel
 
 from dataset import final

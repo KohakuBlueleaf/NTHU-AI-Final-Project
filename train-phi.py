@@ -8,8 +8,6 @@ import torch
 
 torch.set_float32_matmul_precision("medium")
 import torch.nn as nn
-import torch.nn.functional as F
-import torch.optim as optim
 import torch.optim.lr_scheduler as lr_sch
 import torch.utils.data as Data
 
@@ -21,7 +19,7 @@ from hakuphi.tools import add_tokens
 from hakuphi.attn_patcher import apply_attn_algo
 
 import pytorch_lightning as pl
-from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
+from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers import WandbLogger
 
 from prodigyopt import Prodigy

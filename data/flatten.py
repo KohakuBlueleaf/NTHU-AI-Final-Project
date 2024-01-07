@@ -1,6 +1,7 @@
 import json
 import tqdm
 
+
 with open("./info-with-preference-translated.json", "r", encoding="utf-8") as f:
     data = json.load(f)
 

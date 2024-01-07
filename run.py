@@ -1,12 +1,8 @@
 from time import time_ns, sleep
 
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
-import torch.optim as optim
 
-import transformers
-from transformers import AutoTokenizer, AutoModel, GenerationConfig
+from transformers import AutoTokenizer, AutoModel
 from tqdm import tqdm
 
 import gradio as gr
@@ -19,7 +15,6 @@ from lycoris.wrapper import create_lycoris_from_weights
 from modules.contrastive import ContrastiveScorer
 from dataset import final
 from data.translation import translate
-from utils import slicepart
 
 
 def load_final_dataset(split="train"):
@@ -53,7 +48,7 @@ Use student's preference to predict the summary of final choosed course.
 
 ### Input:
 {request}"""
-    prev = ''
+    prev = ""
     t0 = time_ns()
     for llm_gen in tqdm(
         generate(
@@ -76,7 +71,9 @@ Use student's preference to predict the summary of final choosed course.
         pass
     t1 = time_ns()
     request = (
-        llm_gen.split("Input:\n", 1)[-1].rsplit("Response:\n", 1)[0].rsplit("\n\n", 1)[0]
+        llm_gen.split("Input:\n", 1)[-1]
+        .rsplit("Response:\n", 1)[0]
+        .rsplit("\n\n", 1)[0]
     )
     result = llm_gen.split("Response:\n", 1)[-1]
     result_tokens = len(tokenizer.tokenize(result))
@@ -202,13 +199,22 @@ if __name__ == "__main__":
             with gr.Column(scale=1):
                 request = gr.TextArea(label="Input your request")
                 weight_sum_sim = gr.Slider(
-                    label="Weight of Summary Similarity", value=1.0, minimum=0.0, maximum=1.0
+                    label="Weight of Summary Similarity",
+                    value=1.0,
+                    minimum=0.0,
+                    maximum=1.0,
                 )
                 weight_con_sim = gr.Slider(
-                    label="Weight of Contrastive Score", value=1.0, minimum=0.0, maximum=1.0
+                    label="Weight of Contrastive Score",
+                    value=1.0,
+                    minimum=0.0,
+                    maximum=1.0,
                 )
                 weight_pref_sim = gr.Slider(
-                    label="Weight of Preference Similarity", value=1.0, minimum=0.0, maximum=1.0
+                    label="Weight of Preference Similarity",
+                    value=1.0,
+                    minimum=0.0,
+                    maximum=1.0,
                 )
                 submit = gr.Button("Submit")
             with gr.Column(scale=2):
@@ -221,9 +227,9 @@ if __name__ == "__main__":
                     summary_sim = gr.Label(label="Summary Similarity")
             with gr.Row():
                 with gr.Column():
-                    contrastive_score =  gr.Label(label="Contrastive Score")
+                    contrastive_score = gr.Label(label="Contrastive Score")
                 with gr.Column():
-                    preference_sim =  gr.Label(label="Preference Similarity")
+                    preference_sim = gr.Label(label="Preference Similarity")
         submit.click(
             wrapper,
             inputs=[request, weight_sum_sim, weight_con_sim, weight_pref_sim],

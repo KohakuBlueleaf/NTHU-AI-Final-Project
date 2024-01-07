@@ -2,8 +2,6 @@ import asyncio
 import csv
 import json
 
-
-import requests
 import httpx
 from bs4 import BeautifulSoup as Soup
 from tqdm import tqdm, trange

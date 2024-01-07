@@ -2,13 +2,11 @@ import os
 
 os.environ["TOKENIZERS_PARALLELISM"] = "true"
 
-from dataset import guanaco, final
+from dataset import final
 
 import torch
 
 torch.set_float32_matmul_precision("medium")
-import torch.nn as nn
-import torch.nn.functional as F
 import torch.optim as optim
 import torch.optim.lr_scheduler as lr_sch
 import torch.utils.data as Data
@@ -19,9 +17,7 @@ from pytorch_lightning.loggers import WandbLogger
 
 from transformers import AutoModel
 
-from prodigyopt import Prodigy
 from modules.contrastive import ContrastiveScorer
-from train_utils import ProdigyLRMonitor
 
 
 EPOCH = 10

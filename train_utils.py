@@ -1,10 +1,7 @@
 from typing import *
 
 from torch.optim import Optimizer
-
-import pytorch_lightning as pl
-from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
-from pytorch_lightning.loggers import WandbLogger
+from pytorch_lightning.callbacks import LearningRateMonitor
 
 
 class ProdigyLRMonitor(LearningRateMonitor):
