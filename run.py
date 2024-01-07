@@ -27,15 +27,6 @@ def load_final_dataset(split="train"):
     return dataset
 
 
-def calc_score(summary_sim, contrastive_score, preference_sim):
-    weight = torch.tensor([1.0, 1.0, 0.5])
-    return (
-        weight[0] * summary_sim
-        + weight[1] * contrastive_score
-        + weight[2] * preference_sim
-    )
-
-
 @torch.no_grad()
 @torch.autocast("cuda")
 def get_result(
@@ -49,6 +40,9 @@ def get_result(
     course_name_en,
     pre_calc_pref_embed,
     pre_calc_sum_embed,
+    weight_sum_sim,
+    weight_con_sim,
+    weight_pref_sim,
 ):
     print("=" * 50, "\n")
     # Use LLM to predict possible summary
@@ -61,7 +55,7 @@ Use student's preference to predict the summary of final choosed course.
 {request}"""
     prev = prompt
     t0 = time_ns()
-    for i in tqdm(
+    for llm_gen in tqdm(
         generate(
             model=text_model,
             tokenizer=tokenizer,
@@ -75,17 +69,16 @@ Use student's preference to predict the summary of final choosed course.
         ),
         disable=True,
     ):
-        if len(i) > len(prev):
-            new_len = len(i) - len(prev)
-            print(i[len(prev) :], end="", flush=True)
-            prev = i
-            yield i.split("Response:\n", 1)[-1], {}
+        if len(llm_gen) > len(prev):
+            print(llm_gen[len(prev) :], end="", flush=True)
+            prev = llm_gen
+            yield {}, llm_gen, {}, {}, {}
         pass
     t1 = time_ns()
     request = (
-        i.split("Input:\n", 1)[-1].rsplit("Response:\n", 1)[0].rsplit("\n\n", 1)[0]
+        llm_gen.split("Input:\n", 1)[-1].rsplit("Response:\n", 1)[0].rsplit("\n\n", 1)[0]
     )
-    result = i.split("Response:\n", 1)[-1]
+    result = llm_gen.split("Response:\n", 1)[-1]
     result_tokens = len(tokenizer.tokenize(result))
     print()
     print("=" * 50)
@@ -105,11 +98,19 @@ Use student's preference to predict the summary of final choosed course.
     contrastive_score = scorer_model(request_embed, pre_calc_sum_embed)[0]
     torch.cuda.empty_cache()
 
+    # Normalize all the score
+    summary_sim = summary_sim - summary_sim.min()
+    summary_sim = summary_sim / summary_sim.max()
+    contrastive_score = contrastive_score - contrastive_score.min()
+    contrastive_score = contrastive_score / contrastive_score.max()
+    preference_sim = preference_sim - preference_sim.min()
+    preference_sim = preference_sim / preference_sim.max()
+
     # Get final score
-    sim_score = calc_score(
-        preference_sim,
-        contrastive_score,
-        summary_sim,
+    sim_score = (
+        preference_sim * weight_pref_sim
+        + summary_sim * weight_sum_sim
+        + contrastive_score * weight_con_sim
     )
     # Normalize
     sim_score = sim_score - sim_score.min()
@@ -118,6 +119,9 @@ Use student's preference to predict the summary of final choosed course.
     # Select best fit
     print("Top 10 similar courses: ")
     choosed = {}
+    choosed_sum_sim = {}
+    choosed_con_sim = {}
+    choosed_pref_sim = {}
     for idx in torch.topk(sim_score, 100).indices:
         if len(choosed) >= 10:
             break
@@ -125,6 +129,9 @@ Use student's preference to predict the summary of final choosed course.
         if name in choosed:
             continue
         choosed[name] = float(sim_score[idx])
+        choosed_sum_sim[name] = float(summary_sim[idx])
+        choosed_con_sim[name] = float(contrastive_score[idx])
+        choosed_pref_sim[name] = float(preference_sim[idx])
         print(
             f"Summary Similarity: {summary_sim[idx].item():.3f}, "
             f"Contrastive Score: {contrastive_score[idx].item():.3f}, "
@@ -132,7 +139,7 @@ Use student's preference to predict the summary of final choosed course.
         )
         print(course_num[idx], course_name[idx], course_name_en[idx])
         print()
-    yield result, choosed
+    yield choosed, llm_gen, choosed_sum_sim, choosed_con_sim, choosed_pref_sim
 
 
 if __name__ == "__main__":
@@ -172,7 +179,7 @@ if __name__ == "__main__":
         r"models\SigLIP\ver1.ckpt"
     ).cpu()
 
-    def wrapper(request):
+    def wrapper(request, weight_sum_sim, weight_con_sim, weight_pref_sim):
         yield from get_result(
             request,
             text_model,
@@ -184,20 +191,39 @@ if __name__ == "__main__":
             course_name_en,
             pre_calc_pref_embed,
             pre_calc_sum_embed,
+            weight_sum_sim,
+            weight_con_sim,
+            weight_pref_sim,
         )
 
     with gr.Blocks(theme=gr.themes.Soft) as demo:
         with gr.Row():
             with gr.Column(scale=1):
                 request = gr.TextArea(label="Input your request")
+                weight_sum_sim = gr.Slider(
+                    label="Weight of Summary Similarity", value=1.0, minimum=0.0, maximum=1.0
+                )
+                weight_con_sim = gr.Slider(
+                    label="Weight of Contrastive Score", value=1.0, minimum=0.0, maximum=1.0
+                )
+                weight_pref_sim = gr.Slider(
+                    label="Weight of Preference Similarity", value=1.0, minimum=0.0, maximum=1.0
+                )
                 submit = gr.Button("Submit")
             with gr.Column(scale=2):
                 label = gr.Label(label="Possible Courses")
-                result = gr.TextArea(label="Predicted Summary")
+        with gr.Accordion("addtional infos", open=False):
+            with gr.Row():
+                with gr.Column():
+                    result = gr.TextArea(label="LLM output")
+                    summary_sim = gr.Label(label="Summary Similarity")
+                with gr.Column():
+                    contrastive_score =  gr.Label(label="Contrastive Score")
+                    preference_sim =  gr.Label(label="Preference Similarity")
         submit.click(
             wrapper,
-            inputs=[request],
-            outputs=[result, label],
+            inputs=[request, weight_sum_sim, weight_con_sim, weight_pref_sim],
+            outputs=[label, result, summary_sim, contrastive_score, preference_sim],
         )
 
     demo.launch(server_name="192.168.1.1", server_port=17415, max_threads=2)
