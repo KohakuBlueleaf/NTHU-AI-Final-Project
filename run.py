@@ -64,7 +64,7 @@ Use student's preference to predict the summary of final choosed course.
             top_p=0.8,
             top_k=45,
             repetition_penalty=1.05,
-            max_new_tokens=144,
+            max_new_tokens=96,
             stream_output=True,
         ),
         disable=True,
@@ -155,7 +155,7 @@ if __name__ == "__main__":
 
     # Load LLM
     text_model: PhiForCausalLM = PhiForCausalLM.from_pretrained("microsoft/phi-2")
-    tokenizer = AutoTokenizer.from_pretrained("microsoft/phi-2")
+    tokenizer = AutoTokenizer.from_pretrained("microsoft/phi-2", use_fast=True)
     tokenizer.pad_token = tokenizer.eos_token
     # Apply xformers optimization
     apply_attn_algo(text_model, algo="xformers")
@@ -167,6 +167,7 @@ if __name__ == "__main__":
     lycoris_net.merge_to(0.9)
 
     # Cast LLM to FP8 for efficiency
+    text_model.half()
     text_model.transformer.h.to(torch.float8_e4m3fn)
     text_model.lm_head.to(torch.float8_e4m3fn)
     text_model.cuda()
