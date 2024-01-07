@@ -53,7 +53,7 @@ Use student's preference to predict the summary of final choosed course.
 
 ### Input:
 {request}"""
-    prev = prompt
+    prev = ''
     t0 = time_ns()
     for llm_gen in tqdm(
         generate(
@@ -197,7 +197,7 @@ if __name__ == "__main__":
             weight_pref_sim,
         )
 
-    with gr.Blocks(theme=gr.themes.Soft) as demo:
+    with gr.Blocks(theme=gr.themes.Soft()) as demo:
         with gr.Row():
             with gr.Column(scale=1):
                 request = gr.TextArea(label="Input your request")
