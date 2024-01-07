@@ -216,9 +216,12 @@ if __name__ == "__main__":
             with gr.Row():
                 with gr.Column():
                     result = gr.TextArea(label="LLM output")
+                with gr.Column():
                     summary_sim = gr.Label(label="Summary Similarity")
+            with gr.Row():
                 with gr.Column():
                     contrastive_score =  gr.Label(label="Contrastive Score")
+                with gr.Column():
                     preference_sim =  gr.Label(label="Preference Similarity")
         submit.click(
             wrapper,
