@@ -31,7 +31,7 @@ def make_autocast():
     if not torch.cuda.is_available():
         return manual_cast(device, dtype)
     else:
-        return torch.autocast("cuda")
+        return torch.autocast("cuda", dtype)
 
 
 @torch.no_grad()
@@ -51,6 +51,7 @@ def get_result(
     weight_pref_sim,
     expand_input,
 ):
+    start = time_ns()
     print("=" * 50, "\n")
     # Use LLM to predict possible summary
     # This prompt allow model itself to make request longer based on what it learned
@@ -83,7 +84,7 @@ Use student's preference to predict the summary of final choosed course.
         if len(llm_gen) > len(prev):
             print(llm_gen[len(prev) :], end="", flush=True)
             prev = llm_gen
-            yield {}, llm_gen, {}, {}, {}
+            yield {}, llm_gen, {}, {}, {}, f"Total cost time: {(time_ns()-start)/1e9:.2f}s"
         pass
     t1 = time_ns()
     request = (
@@ -160,7 +161,10 @@ Use student's preference to predict the summary of final choosed course.
     for idx, (k, v) in enumerate(list(choosed.items())):
         del choosed[k]
         choosed[f"{idx+1:02}, {k}"] = v
-    yield choosed, llm_gen, choosed_sum_sim, choosed_con_sim, choosed_pref_sim
+    end = time_ns()
+    cost_time = f"Total cost time: {(end-start)/1e9:.2f}s"
+    print(cost_time)
+    yield choosed, llm_gen, choosed_sum_sim, choosed_con_sim, choosed_pref_sim, cost_time
 
 
 def apply_lycoris(text_model, lycoris_path, weight=1.0):
@@ -205,7 +209,7 @@ if __name__ == "__main__":
     # Load Jina-Emb model and contrastive scorer model
     embed_model = AutoModel.from_pretrained(
         "jinaai/jina-embeddings-v2-base-en", trust_remote_code=True
-    ).cpu()
+    ).to(device)
     scorer_model = ContrastiveScorer.load_from_checkpoint(
         "./models/SigLIP/ver1.ckpt"
     ).cpu()
@@ -255,6 +259,7 @@ if __name__ == "__main__":
                 submit = gr.Button("Submit")
             with gr.Column(scale=2):
                 label = gr.Label(label="Possible Courses")
+                cost_time = gr.Markdown()
         with gr.Accordion("addtional infos", open=False):
             with gr.Row():
                 with gr.Column():
@@ -275,7 +280,15 @@ if __name__ == "__main__":
                 weight_pref_sim,
                 expand_input,
             ],
-            outputs=[label, result, summary_sim, contrastive_score, preference_sim],
+            outputs=[
+                label,
+                result,
+                summary_sim,
+                contrastive_score,
+                preference_sim,
+                cost_time,
+            ],
+            show_progress=True,
         )
 
-    demo.launch(server_name="127.0.0.1", server_port=17415, max_threads=2)
+    demo.launch(server_name="192.168.1.1", server_port=17415, max_threads=2)

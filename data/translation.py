@@ -12,6 +12,7 @@ model = M2M100ForConditionalGeneration.from_pretrained(
     "facebook/nllb-200-distilled-600M"
 )
 model: M2M100ForConditionalGeneration = model.half()
+model = model.to(device)
 tokenizer = AutoTokenizer.from_pretrained("facebook/nllb-200-distilled-600M")
 
 tokenizer.src_lang = "eng_Latn"
@@ -30,7 +31,6 @@ def translate(text, target_lang="zho_Hant"):
         forced_bos_token_id=tokenizer.lang_code_to_id[target_lang],
         max_length=1024,
     )
-    model.cpu()
     return tokenizer.batch_decode(outputs, skip_special_tokens=True)[0]
 
 
