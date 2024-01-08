@@ -20,7 +20,7 @@ target_lengths = ["zho_Hant", "zho_Hans", "jpn_Jpan"]
 
 
 @torch.no_grad()
-@(torch.autocast("cuda") if torch.cuda.is_available() else manual_cast(torch.float32))
+@(torch.autocast("cuda") if torch.cuda.is_available() else manual_cast(device, dtype))
 def translate(text, target_lang="zho_Hant"):
     inputs = tokenizer(text, return_tensors="pt")
     inputs["input_ids"] = inputs["input_ids"].to(device)

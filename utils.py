@@ -30,13 +30,18 @@ patch_module_list = [
 ]
 
 
-def manual_cast_forward(dtype):
+def manual_cast_forward(device, dtype):
     def forward_wrapper(self, *args, **kwargs):
+        org_dtype = next(self.parameters()).dtype
+        org_device = next(self.parameters()).device
+        if device != org_device:
+            return self.org_forward(*args, **kwargs)
         if isinstance(self, torch.nn.MultiheadAttention):
-            target_dtype = torch.float32  
+            target_dtype = torch.float32
         else:
             target_dtype = dtype
-        org_dtype = next(self.parameters()).dtype
+        if target_dtype == org_dtype == dtype:
+            return self.org_forward(*args, **kwargs)
         self.to(target_dtype)
         args = [
             arg.to(target_dtype) 
@@ -51,6 +56,7 @@ def manual_cast_forward(dtype):
             for k, v in kwargs.items()
         }
         result = self.org_forward(*args, **kwargs)
+        assert not torch.any(torch.isnan(result))
         self.to(org_dtype)
         
         if isinstance(result, tuple):
@@ -67,13 +73,13 @@ def manual_cast_forward(dtype):
 
 
 @contextlib.contextmanager
-def manual_cast(dtype):
+def manual_cast(device, dtype):
     patched = {}
     for module_type in patch_module_list:
         if hasattr(module_type, "org_forward"):
             continue
         org_forward = module_type.forward
-        module_type.forward = manual_cast_forward(dtype)
+        module_type.forward = manual_cast_forward(device, dtype)
         module_type.org_forward = org_forward
         patched[module_type] = True
     try:

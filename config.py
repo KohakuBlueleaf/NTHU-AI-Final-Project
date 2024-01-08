@@ -1,4 +1,4 @@
 import torch
 
-dtype = torch.float32
+dtype = torch.float16
 device = "mps"

@@ -28,13 +28,12 @@ def load_final_dataset(split="train"):
 
 def make_autocast():
     if not torch.cuda.is_available():
-        return manual_cast(dtype)
+        return manual_cast(device, dtype)
     else:
         return torch.autocast("cuda")
 
 
 @torch.no_grad()
-@torch.autocast("cuda")
 def get_result(
     request,
     text_model,
@@ -186,7 +185,10 @@ if __name__ == "__main__":
     tokenizer = AutoTokenizer.from_pretrained("microsoft/phi-2", use_fast=True)
     tokenizer.pad_token = tokenizer.eos_token
     # Apply xformers optimization
-    apply_attn_algo(text_model, algo="vanilla")
+    try:
+        apply_attn_algo(text_model, algo="xformers")
+    except Exception as e:
+        print(e)
 
     # Load LyCORIS model for LLM and apply it
     apply_lycoris(text_model, "./models/lycoris-weights/epoch=4.pt", 0.7)
