@@ -10,3 +10,9 @@ def slicepart(l, block_size, slice_inside_block=slice(None, None)):
             )
         )
     )
+
+
+def normalize(x):
+    x = x - x.min()
+    x = x / x.max()
+    return x

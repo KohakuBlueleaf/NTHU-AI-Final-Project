@@ -15,6 +15,7 @@ from lycoris.wrapper import create_lycoris_from_weights
 from modules.contrastive import ContrastiveScorer
 from dataset import final
 from data.translation import translate
+from utils import normalize
 
 
 def load_final_dataset(split="train"):
@@ -59,7 +60,7 @@ Use student's preference to predict the summary of final choosed course.
             top_p=0.8,
             top_k=45,
             repetition_penalty=1.05,
-            max_new_tokens=96,
+            max_new_tokens=144,
             stream_output=True,
         ),
         disable=True,
@@ -96,12 +97,9 @@ Use student's preference to predict the summary of final choosed course.
     torch.cuda.empty_cache()
 
     # Normalize all the score
-    summary_sim = summary_sim - summary_sim.min()
-    summary_sim = summary_sim / summary_sim.max()
-    contrastive_score = contrastive_score - contrastive_score.min()
-    contrastive_score = contrastive_score / contrastive_score.max()
-    preference_sim = preference_sim - preference_sim.min()
-    preference_sim = preference_sim / preference_sim.max()
+    summary_sim = normalize(summary_sim)
+    contrastive_score = normalize(contrastive_score)
+    preference_sim = normalize(preference_sim)
 
     # Get final score
     sim_score = (
@@ -109,9 +107,8 @@ Use student's preference to predict the summary of final choosed course.
         + summary_sim * weight_sum_sim
         + contrastive_score * weight_con_sim
     )
-    # Normalize
-    sim_score = sim_score - sim_score.min()
-    sim_score = sim_score / sim_score.max()
+    # normalize
+    sim_score = normalize(sim_score)
 
     # Select best fit
     print("Top 10 similar courses: ")
@@ -119,10 +116,12 @@ Use student's preference to predict the summary of final choosed course.
     choosed_sum_sim = {}
     choosed_con_sim = {}
     choosed_pref_sim = {}
-    for idx in torch.topk(sim_score, 100).indices:
+    for idx in torch.topk(sim_score, 1000).indices:
         if len(choosed) >= 10:
             break
-        name = f"{course_num[idx]} | {course_name[idx]} | {course_name_en[idx]}"
+        # don't take course number as part of name, so we will filter out same name
+        # Since the result is sorted by topk, only the top score of same name will be count
+        name = f"{course_name[idx]} | {course_name_en[idx]}"
         if name in choosed:
             continue
         choosed[name] = float(sim_score[idx])
@@ -137,6 +136,14 @@ Use student's preference to predict the summary of final choosed course.
         print(course_num[idx], course_name[idx], course_name_en[idx])
         print()
     yield choosed, llm_gen, choosed_sum_sim, choosed_con_sim, choosed_pref_sim
+
+
+def apply_lycoris(text_model, lycoris_path, weight=1.0):
+    lycoris_sd = torch.load(lycoris_path, map_location="cpu")
+    lycoris_net, _ = create_lycoris_from_weights(1.0, "", text_model, lycoris_sd)
+    lycoris_net.to(next(text_model.parameters()).dtype)
+    lycoris_net.merge_to(weight)
+    return text_model
 
 
 if __name__ == "__main__":
@@ -158,10 +165,8 @@ if __name__ == "__main__":
     apply_attn_algo(text_model, algo="xformers")
 
     # Load LyCORIS model for LLM and apply it
-    lycoris_sd = torch.load("./models/lycoris-weights/epoch=4.pt", map_location="cpu")
-    lycoris_net, _ = create_lycoris_from_weights(1.0, "", text_model, lycoris_sd)
-    lycoris_net.to(next(text_model.parameters()).dtype)
-    lycoris_net.merge_to(0.9)
+    apply_lycoris(text_model, "./models/lycoris-weights/epoch=4.pt", 0.7)
+    apply_lycoris(text_model, "./models/lycoris-weights/train_on_input/epoch=2.pt", 0.3)
 
     # Cast LLM to FP8 for efficiency
     text_model.half()
