@@ -1,4 +1,5 @@
 import sys
+
 sys.setrecursionlimit(10000000)
 from time import time_ns, sleep
 
@@ -113,7 +114,8 @@ Use student's preference to predict the summary of final choosed course.
     # Calc contrastive score based on preference and pre calc summary embedding
     contrastive_score = scorer_model(request_embed, pre_calc_sum_embed)[0]
     torch.cuda.empty_cache()
-    torch.mps.empty_cache()
+    if sys.platform == "darwin":
+        torch.mps.empty_cache()
 
     # Normalize all the score
     summary_sim = normalize(summary_sim)
@@ -154,10 +156,10 @@ Use student's preference to predict the summary of final choosed course.
         )
         print(course_num[idx], course_name[idx], course_name_en[idx])
         print()
-    
+
     for idx, (k, v) in enumerate(list(choosed.items())):
         del choosed[k]
-        choosed[f'{idx+1:02}, {k}'] = v
+        choosed[f"{idx+1:02}, {k}"] = v
     yield choosed, llm_gen, choosed_sum_sim, choosed_con_sim, choosed_pref_sim
 
 

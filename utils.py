@@ -44,31 +44,25 @@ def manual_cast_forward(device, dtype):
             return self.org_forward(*args, **kwargs)
         self.to(target_dtype)
         args = [
-            arg.to(target_dtype) 
-            if isinstance(arg, torch.Tensor) 
-            else arg 
+            arg.to(target_dtype) if isinstance(arg, torch.Tensor) else arg
             for arg in args
         ]
         kwargs = {
-            k: v.to(target_dtype) 
-            if isinstance(v, torch.Tensor) 
-            else v 
+            k: v.to(target_dtype) if isinstance(v, torch.Tensor) else v
             for k, v in kwargs.items()
         }
         result = self.org_forward(*args, **kwargs)
         assert not torch.any(torch.isnan(result))
         self.to(org_dtype)
-        
+
         if isinstance(result, tuple):
             result = tuple(
-                i.to(dtype) 
-                if isinstance(i, torch.Tensor) 
-                else i 
-                for i in result
+                i.to(dtype) if isinstance(i, torch.Tensor) else i for i in result
             )
         elif isinstance(result, torch.Tensor):
             result = result.to(dtype)
         return result
+
     return forward_wrapper
 
 
