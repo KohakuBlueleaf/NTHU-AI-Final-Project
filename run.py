@@ -1,3 +1,5 @@
+import sys
+sys.setrecursionlimit(10000000)
 from time import time_ns, sleep
 
 import torch
@@ -15,12 +17,20 @@ from lycoris.wrapper import create_lycoris_from_weights
 from modules.contrastive import ContrastiveScorer
 from dataset import final
 from data.translation import translate
-from utils import normalize
+from utils import normalize, manual_cast
+from config import *
 
 
 def load_final_dataset(split="train"):
     dataset = final.load(split)["train"]
     return dataset
+
+
+def make_autocast():
+    if not torch.cuda.is_available():
+        return manual_cast(dtype)
+    else:
+        return torch.autocast("cuda")
 
 
 @torch.no_grad()
@@ -66,6 +76,7 @@ Use student's preference to predict the summary of final choosed course.
             repetition_penalty=1.05,
             max_new_tokens=144,
             stream_output=True,
+            autocast_gen=make_autocast,
         ),
         disable=True,
     ):
@@ -103,6 +114,7 @@ Use student's preference to predict the summary of final choosed course.
     # Calc contrastive score based on preference and pre calc summary embedding
     contrastive_score = scorer_model(request_embed, pre_calc_sum_embed)[0]
     torch.cuda.empty_cache()
+    torch.mps.empty_cache()
 
     # Normalize all the score
     summary_sim = normalize(summary_sim)
@@ -174,7 +186,7 @@ if __name__ == "__main__":
     tokenizer = AutoTokenizer.from_pretrained("microsoft/phi-2", use_fast=True)
     tokenizer.pad_token = tokenizer.eos_token
     # Apply xformers optimization
-    apply_attn_algo(text_model, algo="xformers")
+    apply_attn_algo(text_model, algo="vanilla")
 
     # Load LyCORIS model for LLM and apply it
     apply_lycoris(text_model, "./models/lycoris-weights/epoch=4.pt", 0.7)
@@ -182,35 +194,36 @@ if __name__ == "__main__":
 
     # Cast LLM to FP8 for efficiency
     text_model.half()
-    text_model.transformer.h.to(torch.float8_e4m3fn)
-    text_model.lm_head.to(torch.float8_e4m3fn)
-    text_model.cuda()
+    # text_model.transformer.h.to(torch.float8_e4m3fn)
+    # text_model.lm_head.to(torch.float8_e4m3fn)
+    text_model.to(device)
 
     # Load Jina-Emb model and contrastive scorer model
     embed_model = AutoModel.from_pretrained(
         "jinaai/jina-embeddings-v2-base-en", trust_remote_code=True
     ).cpu()
     scorer_model = ContrastiveScorer.load_from_checkpoint(
-        r"models\SigLIP\ver1.ckpt"
+        "./models/SigLIP/ver1.ckpt"
     ).cpu()
 
     def wrapper(request, weight_sum_sim, weight_con_sim, weight_pref_sim, expand_input):
-        yield from get_result(
-            request,
-            text_model,
-            tokenizer,
-            embed_model,
-            scorer_model,
-            course_num,
-            course_name,
-            course_name_en,
-            pre_calc_pref_embed,
-            pre_calc_sum_embed,
-            weight_sum_sim,
-            weight_con_sim,
-            weight_pref_sim,
-            expand_input,
-        )
+        with make_autocast():
+            yield from get_result(
+                request,
+                text_model,
+                tokenizer,
+                embed_model,
+                scorer_model,
+                course_num,
+                course_name,
+                course_name_en,
+                pre_calc_pref_embed,
+                pre_calc_sum_embed,
+                weight_sum_sim,
+                weight_con_sim,
+                weight_pref_sim,
+                expand_input,
+            )
 
     with gr.Blocks(theme=gr.themes.Soft()) as demo:
         with gr.Row():
@@ -261,4 +274,4 @@ if __name__ == "__main__":
             outputs=[label, result, summary_sim, contrastive_score, preference_sim],
         )
 
-    demo.launch(server_name="192.168.1.1", server_port=17415, max_threads=2)
+    demo.launch(server_name="127.0.0.1", server_port=17415, max_threads=2)

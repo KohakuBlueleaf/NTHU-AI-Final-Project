@@ -4,6 +4,8 @@ import torch
 import tqdm
 
 from transformers import M2M100ForConditionalGeneration, AutoTokenizer
+from utils import manual_cast
+from config import *
 
 
 model = M2M100ForConditionalGeneration.from_pretrained(
@@ -18,12 +20,12 @@ target_lengths = ["zho_Hant", "zho_Hans", "jpn_Jpan"]
 
 
 @torch.no_grad()
-@torch.autocast("cuda")
+@(torch.autocast("cuda") if torch.cuda.is_available() else manual_cast(torch.float32))
 def translate(text, target_lang="zho_Hant"):
     inputs = tokenizer(text, return_tensors="pt")
-    inputs["input_ids"] = inputs["input_ids"].cuda()
-    inputs["attention_mask"] = inputs["attention_mask"].cuda()
-    outputs = model.cuda().generate(
+    inputs["input_ids"] = inputs["input_ids"].to(device)
+    inputs["attention_mask"] = inputs["attention_mask"].to(device)
+    outputs = model.to(device).generate(
         **inputs,
         forced_bos_token_id=tokenizer.lang_code_to_id[target_lang],
         max_length=1024,

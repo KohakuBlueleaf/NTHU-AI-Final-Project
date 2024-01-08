@@ -7,6 +7,6 @@ toml
 gradio
 lycoris-lora>=2.1.0.dev1
 hakuphi>=0.0.1.dev1
-prodigy
+prodigyopt
 einops
 warmup_scheduler
