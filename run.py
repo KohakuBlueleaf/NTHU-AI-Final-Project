@@ -39,6 +39,7 @@ def get_result(
     weight_sum_sim,
     weight_con_sim,
     weight_pref_sim,
+    expand_input,
 ):
     print("=" * 50, "\n")
     # Use LLM to predict possible summary
@@ -50,6 +51,9 @@ Use student's preference to predict the summary of final choosed course.
 ### Input:
 {request}"""
     prev = ""
+    if not expand_input:
+        prompt += "\n\n### Response:\n"
+
     t0 = time_ns()
     for llm_gen in tqdm(
         generate(
@@ -78,6 +82,10 @@ Use student's preference to predict the summary of final choosed course.
     )
     result = llm_gen.split("Response:\n", 1)[-1]
     result_tokens = len(tokenizer.tokenize(result))
+    print()
+    print("=" * 50)
+    print(f"Request: {request}")
+    print(f"Result: {result}")
     print()
     print("=" * 50)
     print(f"Total generated tokens: {result_tokens}")
@@ -135,6 +143,10 @@ Use student's preference to predict the summary of final choosed course.
         )
         print(course_num[idx], course_name[idx], course_name_en[idx])
         print()
+    
+    for idx, (k, v) in enumerate(list(choosed.items())):
+        del choosed[k]
+        choosed[f'{idx+1:02}, {k}'] = v
     yield choosed, llm_gen, choosed_sum_sim, choosed_con_sim, choosed_pref_sim
 
 
@@ -182,7 +194,7 @@ if __name__ == "__main__":
         r"models\SigLIP\ver1.ckpt"
     ).cpu()
 
-    def wrapper(request, weight_sum_sim, weight_con_sim, weight_pref_sim):
+    def wrapper(request, weight_sum_sim, weight_con_sim, weight_pref_sim, expand_input):
         yield from get_result(
             request,
             text_model,
@@ -197,6 +209,7 @@ if __name__ == "__main__":
             weight_sum_sim,
             weight_con_sim,
             weight_pref_sim,
+            expand_input,
         )
 
     with gr.Blocks(theme=gr.themes.Soft()) as demo:
@@ -221,6 +234,7 @@ if __name__ == "__main__":
                     minimum=0.0,
                     maximum=1.0,
                 )
+                expand_input = gr.Checkbox(label="Expand Input")
                 submit = gr.Button("Submit")
             with gr.Column(scale=2):
                 label = gr.Label(label="Possible Courses")
@@ -237,7 +251,13 @@ if __name__ == "__main__":
                     preference_sim = gr.Label(label="Preference Similarity")
         submit.click(
             wrapper,
-            inputs=[request, weight_sum_sim, weight_con_sim, weight_pref_sim],
+            inputs=[
+                request,
+                weight_sum_sim,
+                weight_con_sim,
+                weight_pref_sim,
+                expand_input,
+            ],
             outputs=[label, result, summary_sim, contrastive_score, preference_sim],
         )
 
