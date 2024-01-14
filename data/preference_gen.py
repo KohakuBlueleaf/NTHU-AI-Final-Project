@@ -17,7 +17,7 @@ CONTENT_SHOULD_APPEAR = ["I", "my", "mine"]
 
 retries = 5
 client = openai.AsyncOpenAI(
-    api_key="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"
+    api_key="API_KEY"
 )
 info_list = json.load(open("info-with-preference.json", "r", encoding="utf-8"))
 semaphore = asyncio.Semaphore(16)
