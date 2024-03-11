@@ -78,6 +78,9 @@ Use student's preference to predict the summary of final choosed course.
             max_new_tokens=144,
             stream_output=True,
             autocast_gen=make_autocast,
+            prompt_lookup_num_tokens=10,
+            eos_token_id = tokenizer.eos_token_id,
+            pad_token_id = tokenizer.pad_token_id
         ),
         disable=True,
     ):
@@ -187,8 +190,14 @@ if __name__ == "__main__":
     pre_calc_pref_embed = torch.tensor(torch.load("./models/preference-embeddings.pt"))
 
     # Load LLM
-    text_model: PhiForCausalLM = PhiForCausalLM.from_pretrained("microsoft/phi-2")
-    tokenizer = AutoTokenizer.from_pretrained("microsoft/phi-2", use_fast=True)
+    text_model: PhiForCausalLM = PhiForCausalLM.from_pretrained(
+        "microsoft/phi-2", revision="834565c23f9b28b96ccbeabe614dd906b6db551a"
+    )
+    tokenizer = AutoTokenizer.from_pretrained(
+        "microsoft/phi-2",
+        use_fast=True,
+        revision="834565c23f9b28b96ccbeabe614dd906b6db551a",
+    )
     tokenizer.pad_token = tokenizer.eos_token
     # Apply xformers optimization
     try:

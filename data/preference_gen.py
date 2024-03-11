@@ -16,9 +16,7 @@ BEGIN_BLACK_LIST = [" ", ":", ",", ".", "Sorry", "Error"]
 CONTENT_SHOULD_APPEAR = ["I", "my", "mine"]
 
 retries = 5
-client = openai.AsyncOpenAI(
-    api_key="API_KEY"
-)
+client = openai.AsyncOpenAI(api_key="API_KEY")
 info_list = json.load(open("info-with-preference.json", "r", encoding="utf-8"))
 semaphore = asyncio.Semaphore(16)
 pbar: tqdm.tqdm = None
@@ -78,8 +76,6 @@ async def course_preference(course_info):
                     content = content[1:-1]
                 elif content.count('"') >= 1:
                     content = content.split('"')[-2]
-                else:
-                    content = content
                 if preference_check(content):
                     result += [content]
                     break

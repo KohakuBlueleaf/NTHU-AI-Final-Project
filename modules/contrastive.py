@@ -73,7 +73,7 @@ class ContrastiveScorer(BaseTrainer):
         self.val_batch = 0
 
     @torch.no_grad()
-    def validation_step(self, batch, idx):
+    def validation_step(self, batch, batch_idx):
         self.eval()
         preference, summary, idx = batch
         target = make_clip_grid(idx)

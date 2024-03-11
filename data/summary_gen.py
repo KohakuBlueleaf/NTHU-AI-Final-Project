@@ -22,9 +22,7 @@ Brief description: {}
 Syllabus: {}"""
 
 retries = 5
-client = openai.AsyncOpenAI(
-    api_key="API_KEY"
-)
+client = openai.AsyncOpenAI(api_key="API_KEY")
 info_list = json.load(open("info-with-preference.json", "r", encoding="utf-8"))
 semaphore = asyncio.Semaphore(6)
 pbar: tqdm.tqdm = None
